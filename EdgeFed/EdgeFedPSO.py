@@ -83,6 +83,7 @@ def calculate_gradient(model, dataloader):
 
 
 # EdgeUpdate procedure with PSO
+# Modify PSOUpdate function to fine-tune the best-performing particle's parameters
 def PSOUpdate(client_id, local_model, dataloader, global_best_model, global_best_score):
     # PSO parameters
     num_particles = 5
@@ -128,29 +129,19 @@ def PSOUpdate(client_id, local_model, dataloader, global_best_model, global_best
                 key: inertia_weight * particle['velocity'][key] + cognitive_term[key] + social_term[key]
                 for key in local_model.state_dict().keys()}
 
-            # Perform element-wise subtraction
-            particle['model'] = {key: particle['model'][key] - particle['velocity'][key] for key in
+            # Perform element-wise addition
+            particle['model'] = {key: particle['model'][key] + particle['velocity'][key] for key in
                                  local_model.state_dict().keys()}
 
         # Print the results after each epoch
         logger.info(
             f"Client {client_id} - Epoch {epoch}\tAccuracy: {accuracy:.2f}%\tLoss: {best_particle['score']:.4f}")
 
-    # Update the global model with the best particle's parameters
-    global_model.load_state_dict(global_best_model.state_dict())
-
     # Return the accuracy for logging in GlobalAggregation
     return accuracy
 
 
-def calculate_weighted_average(models, weights):
-    weighted_params = {}
-    total_weight = sum(weights)
-    for key in models[0].keys():
-        weighted_params[key] = sum(model[key] * weight for model, weight in zip(models, weights)) / total_weight
-    return weighted_params
-
-
+# Modify GlobalAggregation function to use PSO updates more effectively
 def GlobalAggregation():
     global model_parameters, process_1
 
@@ -205,7 +196,7 @@ def GlobalAggregation():
         # Append results to learning curves
         global_losses.append(global_loss)
         global_accuracies.append(global_accuracy)
-        save_data(global_accuracies, 'output_b.pkl')
+        save_data(global_accuracies, '../output_b.pkl')
         # Print the results after each round
         logger.info(f"Round {t}: Global Loss: {global_loss:.4f}, Global Accuracy: {global_accuracy:.2f}%")
 

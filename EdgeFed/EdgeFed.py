@@ -11,13 +11,13 @@ from data_storage import save_data
 
 
 # Define some constants
-num_edge_servers = 2
+num_edge_servers = 5
 m = num_edge_servers  # Number of edge servers
 k = 100  # Number of clients per edge server
 b = 32  # Local batch size
-E = 3  # Number of local epochs
+E = 5  # Number of local epochs
 learning_rate = 0.001
-num_rounds = 5  # Number of communication rounds
+num_rounds = 10  # Number of communication rounds
 num_classes = 10
 
 # Load and preprocess the MNIST dataset
@@ -86,7 +86,7 @@ def EdgeUpdate(client_id, local_model, dataloader):
     local_model_copy.train()
 
     # Define optimizer and criterion for the local model
-    optimizer = optim.Adam(local_model_copy.parameters(), lr=learning_rate)
+    optimizer = optim.SGD(local_model_copy.parameters(), lr=learning_rate)
     criterion = nn.CrossEntropyLoss()
 
     for epoch in range(1, E + 1):
@@ -152,7 +152,7 @@ def GlobalAggregation():
         # Append results to learning curves
         global_losses.append(global_loss)
         global_accuracies.append(global_accuracy)
-        save_data(global_accuracies, 'output_a.pkl')
+        save_data(global_accuracies, '../output_a.pkl')
 
         print(f"Round {t}: Global Loss: {global_loss:.4f}, Global Accuracy: {global_accuracy:.2f}%")
 
