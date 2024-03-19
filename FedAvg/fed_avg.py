@@ -1,21 +1,14 @@
-import os
 #os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
 
 from keras.datasets import cifar10
-from keras.datasets import mnist
-from keras.optimizers import SGD
 from keras.utils import to_categorical
-from keras.backend import image_data_format
 
-
-import matplotlib.pyplot as plt
 import numpy as np
 import copy
 import random
-import sys
 
-from build_model import Model
+from FedAvg.build_model import Model
 import csv
 
 # client config

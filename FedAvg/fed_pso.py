@@ -1,19 +1,12 @@
-import os
 import tensorflow as tf
-from keras.datasets import cifar10, mnist
-from keras.optimizers import SGD, Adam
+from keras.datasets import cifar10
 from keras.utils import to_categorical
-from keras.backend import image_data_format
-from keras.applications.mobilenet import MobileNet
 from keras.callbacks import ModelCheckpoint
-import matplotlib.pyplot as plt
 import numpy as np
-import copy
-from build_model import Model
+from FedAvg.build_model import Model
 import csv
 import random
 import time
-from EdgeFed import outputs
 
 # client config
 NUMOFCLIENTS = 5  # number of client(as particles)
