@@ -4,8 +4,8 @@ import data_storage
 from data_storage import load_data
 
 num_rounds = 5
-process_1 = data_storage.load_data('output_a.pkl')
-process_2 = data_storage.load_data('output_b.pkl')
+process_1 = load_data('output_accuracies.pkl')
+process_2 = load_data('output_losses.pkl')
 plt.figure(figsize=(12, 5))
 # plt.subplot(1, 2, 1)
 # plt.plot(range(1, num_rounds + 1), global_losses, marker='o')

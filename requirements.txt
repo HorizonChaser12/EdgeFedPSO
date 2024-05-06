@@ -1,4 +1,7 @@
-torch==1.9.0
-torchvision==0.10.0
-numpy==1.21.5
-matplotlib==3.5.1
+torch~=2.1.0
+torchvision~=0.16.0
+numpy~=1.26.1
+matplotlib~=3.8.1
+tensorflow~=2.14.0
+keras~=2.14.0
+scikit-learn~=1.4.1.post1

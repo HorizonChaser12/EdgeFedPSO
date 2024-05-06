@@ -19,6 +19,7 @@ transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5
 trainset = torchvision.datasets.MNIST(root='./data', train=True, transform=transform, download=True)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=b, shuffle=True)
 
+
 # Define a simple convolutional neural network (CNN) model
 class CNNModel(nn.Module):
     def __init__(self):
@@ -35,8 +36,10 @@ class CNNModel(nn.Module):
         x = self.fc2(x)
         return x
 
+
 # Instantiate the global model
 global_model = CNNModel()
+
 
 # FedProxOptimizer
 class FedProxOptimizer(optim.Optimizer):
@@ -66,6 +69,7 @@ class FedProxOptimizer(optim.Optimizer):
 
         # Perform the proximal operation
         return params - mu * lr * (params - global_params)
+
 
 # GlobalAggregation procedure
 def GlobalAggregation():
@@ -109,6 +113,7 @@ def GlobalAggregation():
     plt.tight_layout()
     plt.show()
 
+
 # Function to calculate loss and accuracy
 def calculate_loss_and_accuracy(model, dataloader):
     model.eval()
@@ -134,6 +139,7 @@ def calculate_loss_and_accuracy(model, dataloader):
     model.train()
 
     return average_loss, accuracy
+
 
 # Run the GlobalAggregation procedure
 GlobalAggregation()
