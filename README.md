@@ -6,6 +6,23 @@ EdgeFedPSO is an innovative project that implements Federated Learning using Par
 
 EdgeFedPSO leverages the power of federated learning to train machine learning models across edge devices, such as smartphones and IoT devices, without the need to centralize data. The project employs the Particle Swarm Optimization algorithm to optimize model parameters locally on edge devices while periodically exchanging information with a central server to aggregate global updates.
 
+## Updates
+
+Updates in EdgeFedPSO:
+1. PSO-based Model Update: The Particle Swarm Optimization (PSO) algorithm has been integrated into the client-side model updates. Instead of traditional gradient-based updates, each client employs multiple particles to explore better model parameters, combining cognitive and social terms for better convergence.
+2. Improved Metrics and Aggregation: Clients now send updated models with precision, recall, and F1-score for enhanced evaluation.
+Weighted averaging of model parameters uses PSO to fine-tune global model updates.
+3. Global Stopping Condition:Introduced accuracy threshold (95%) for early stopping during global aggregation.
+4. Efficiency Improvements:Refined learning rate adjustment and optimized PSO update process for faster convergence.
+
+
+
+
+
+
+
+
+
 
 ## Key Features
 
