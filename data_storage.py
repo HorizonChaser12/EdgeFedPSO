@@ -13,4 +13,4 @@ def load_data(filename):
         with open(filename, 'rb') as f:
             return pickle.load(f)
     except FileNotFoundError:
-        return None
+        return -1

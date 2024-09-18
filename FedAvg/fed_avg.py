@@ -1,155 +1,233 @@
-#os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import tensorflow as tf
-
-from keras.datasets import cifar10
-from keras.utils import to_categorical
-
 import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torchvision
+import torchvision.transforms as transforms
 import copy
-import random
+import logging
+from sklearn.metrics import precision_score, recall_score, f1_score
+from data_storage import save_data
 
-from FedAvg.build_model import Model
-import csv
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# client config
-NUMOFCLIENTS = 10 # number of client(as particles)
-SELECT_CLIENTS = 0.5 # c
-EPOCHS = 30 # number of total iteration
-CLIENT_EPOCHS = 5 # number of each client's iteration
-BATCH_SIZE = 10 # Size of batches to train on
-DROP_RATE = 0
+# Define constants
+num_edge_servers = 5
+m = num_edge_servers  # Number of edge servers
+k = 10  # Number of clients per edge server
+b = 32  # Local batch size
+E = 5   # Number of local epochs
+learning_rate = 0.001
+num_rounds = 10  # Number of communication rounds
+num_classes = 10
 
-# model config 
-LOSS = 'categorical_crossentropy' # Loss function
-NUMOFCLASSES = 10 # Number of classes
-lr = 0.0025
-# OPTIMIZER = SGD(lr=0.015, decay=0.01, nesterov=False)
-OPTIMIZER = tf.keras.optimizers.legacy.SGD(lr=lr, momentum=0.9, decay=lr/(EPOCHS*CLIENT_EPOCHS), nesterov=False) # lr = 0.015, 67 ~ 69%
+# Device configuration
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+# Load and preprocess the MNIST dataset
+transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+trainset = torchvision.datasets.MNIST(root='./data', train=True, transform=transform, download=True)
 
-def write_csv(method_name, list):
-    file_name = '{name}_CIFAR10_randomDrop_{drop}%_output_C_{c}_LR_{lr}_CLI_{cli}_CLI_EPOCHS_{cli_epoch}_TOTAL_EPOCHS_{epochs}_BATCH_{batch}.csv'
-    file_name = file_name.format(folder="origin_drop",drop=DROP_RATE, name=method_name, c=SELECT_CLIENTS, lr=lr, cli=NUMOFCLIENTS, cli_epoch=CLIENT_EPOCHS, epochs=EPOCHS, batch=BATCH_SIZE)
-    f = open(file_name, 'w', encoding='utf-8', newline='')
-    wr = csv.writer(f)
-    
-    for l in list:
-        wr.writerow(l)
-    f.close()
+# Define the CNN model
+class CNNModel(nn.Module):
+    def __init__(self):
+        super(CNNModel, self).__init__()
+        self.conv1 = nn.Conv2d(1, 32, 3)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.fc1 = nn.Linear(32 * 13 * 13, 128)
+        self.fc2 = nn.Linear(128, num_classes)
 
+    def forward(self, x):
+        x = self.pool(nn.functional.relu(self.conv1(x)))
+        x = x.view(-1, 32 * 13 * 13)
+        x = nn.functional.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
 
-def load_dataset():
-    # Code for experimenting with CIFAR-10 datasets.
-    (X_train, Y_train), (X_test, Y_test) = cifar10.load_data()
-    
-    # Code for experimenting with MNIST datasets.
-    # (X_train, Y_train), (X_test, Y_test) = mnist.load_data()
-    # X_train = X_train.reshape(X_train.shape[0], 28, 28, 1)
-    # X_test = X_test.reshape(X_test.shape[0], 28, 28, 1)
-    
-    X_train = X_train.astype('float32')
-    X_test = X_test.astype('float32')
-    X_train = X_train / 255.0
-    X_test = X_test / 255.0
+# Instantiate the global model
+global_model = CNNModel().to(device)
 
-    Y_train = to_categorical(Y_train)
-    Y_test = to_categorical(Y_test)
+# Function to calculate gradients and metrics
+def calculate_gradient(model, dataloader):
+    criterion = nn.CrossEntropyLoss()
+    model.train()
+    total_loss = 0.0
+    total_correct = 0
+    total_samples = 0
+    all_labels = []
+    all_predictions = []
 
-    return (X_train, Y_train), (X_test, Y_test)
+    for inputs, labels in dataloader:
+        inputs, labels = inputs.to(device), labels.to(device)
+        model.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
 
+        total_loss += loss.item()
+        _, predicted = torch.max(outputs, 1)
+        total_correct += (predicted == labels).sum().item()
+        total_samples += labels.size(0)
 
-def init_model(train_data_shape):
-    model = Model(loss=LOSS, optimizer=OPTIMIZER, classes=NUMOFCLASSES)
-    fl_model = model.fl_paper_model(train_shape=train_data_shape)
+        all_labels.extend(labels.cpu().numpy())
+        all_predictions.extend(predicted.cpu().numpy())
 
-    return fl_model
+    accuracy = (total_correct / total_samples) * 100.0
+    average_loss = total_loss / len(dataloader)
 
+    return average_loss, accuracy, all_labels, all_predictions
 
-def client_data_config(x_train, y_train):
-    client_data = [() for _ in range(NUMOFCLIENTS)] # () for _ in range(NUMOFCLIENTS)
-    num_of_each_dataset = int(x_train.shape[0] / NUMOFCLIENTS)
-    
-    for i in range(NUMOFCLIENTS):
-        split_data_index = []
-        while len(split_data_index) < num_of_each_dataset:
-            item = random.choice(range(x_train.shape[0]))
-            if item not in split_data_index:
-                split_data_index.append(item)
-        
-        new_x_train = np.asarray([x_train[k] for k in split_data_index])
-        new_y_train = np.asarray([y_train[k] for k in split_data_index])
-    
-        client_data[i] = (new_x_train, new_y_train)
+# Function to calculate metrics
+def calculate_metrics(true_labels, predictions):
+    precision = precision_score(true_labels, predictions, average='weighted')
+    recall = recall_score(true_labels, predictions, average='weighted')
+    f1 = f1_score(true_labels, predictions, average='weighted')
+    return precision, recall, f1
 
-    return client_data
+# FedAvg Update function
+def FedAvgUpdate(client_id, global_model, dataloader):
+    local_model = copy.deepcopy(global_model)
+    optimizer = optim.SGD(local_model.parameters(), lr=learning_rate)
+    criterion = nn.CrossEntropyLoss()
 
+    for epoch in range(1, E + 1):
+        local_model.train()
+        total_loss = 0.0
+        total_correct = 0
+        total_samples = 0
 
-def fedAVG(server_weight):
-    avg_weight = np.array(server_weight[0])
-    
-    if len(server_weight) > 1:
-        for i in range(1, len(server_weight)):
-            avg_weight += server_weight[i]
-    
-    avg_weight = avg_weight / len(server_weight)
+        for inputs, labels in dataloader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = local_model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
 
-    return avg_weight
+            total_loss += loss.item()
+            _, predicted = torch.max(outputs, 1)
+            total_correct += (predicted == labels).sum().item()
+            total_samples += labels.size(0)
 
+        average_loss = total_loss / len(dataloader)
+        accuracy = (total_correct / total_samples) * 100.0
 
-def client_update(index, client, now_epoch, avg_weight):
-    print("client {}/{} fitting".format(index + 1, int(NUMOFCLIENTS * SELECT_CLIENTS)))
+        logger.info(f"Client {client_id} - Epoch {epoch}\tAccuracy: {accuracy:.2f}%\tLoss: {average_loss:.4f}")
 
-    if now_epoch != 0:
-        client.set_weights(avg_weight) 
-    
-    client.fit(client_data[index][0], client_data[index][1],
-        epochs=CLIENT_EPOCHS,
-        batch_size=BATCH_SIZE,
-        verbose=1,
-        validation_split=0.2,
-    )
+    return local_model.state_dict()
 
-    return client
+# Function to adjust learning rate
+def adjust_learning_rate(optimizer, decay_rate=0.95):
+    for param_group in optimizer.param_groups:
+        param_group['lr'] *= decay_rate
 
+# Function to calculate weighted average of model parameters
+def calculate_weighted_average(weighted_params, weights):
+    avg_params = copy.deepcopy(weighted_params[0])
+    total_weight = sum(weights)
+    for key in avg_params.keys():
+        avg_params[key] = sum(weight * param[key] for weight, param in zip(weights, weighted_params)) / total_weight
+    return avg_params
 
-if __name__ == "__main__":
-    (x_train, y_train), (x_test, y_test) = load_dataset()
+# Load test dataset
+testset = torchvision.datasets.MNIST(root='./data', train=False, transform=transform, download=True)
+testloader = torch.utils.data.DataLoader(testset, batch_size=b, shuffle=False)
 
-    server_model = init_model(train_data_shape=x_train.shape[1:])
-    server_model.summary()
+def evaluate_global_model(model, dataloader):
+    model.eval()
+    total_loss = 0.0
+    total_correct = 0
+    total_samples = 0
+    all_labels = []
+    all_predictions = []
+    criterion = nn.CrossEntropyLoss()
 
-    client_data = client_data_config(x_train, y_train)
-    fl_model = []
-    for i in range(NUMOFCLIENTS):
-        fl_model.append(init_model(train_data_shape=client_data[i][0].shape[1:]))
+    with torch.no_grad():
+        for inputs, labels in dataloader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
 
-    avg_weight = server_model.get_weights()
-    server_evaluate_acc = []
+            total_loss += loss.item()
+            _, predicted = torch.max(outputs, 1)
+            total_correct += (predicted == labels).sum().item()
+            total_samples += labels.size(0)
 
-    for epoch in range(EPOCHS):  
-        server_weight = []
-        
-        selected_num = int(max(NUMOFCLIENTS * SELECT_CLIENTS, 1))
-        split_data_index = []
-        while len(split_data_index) < selected_num:
-            item = random.choice(range(len(fl_model)))
-            if item not in split_data_index:
-                split_data_index.append(item)
-        split_data_index.sort()
-        selected_model = [fl_model[k] for k in split_data_index]
+            all_labels.extend(labels.cpu().numpy())
+            all_predictions.extend(predicted.cpu().numpy())
 
-        for index, client in enumerate(selected_model):
-            recv_model = client_update(index, client, epoch, avg_weight)
-            
-            rand = random.randint(0,99)
-            drop_communication = range(DROP_RATE)
-            if rand not in drop_communication:
-                server_weight.append(copy.deepcopy(recv_model.get_weights()))
-        
-        avg_weight = fedAVG(server_weight)
+    average_loss = total_loss / len(dataloader)
+    accuracy = (total_correct / total_samples) * 100.0
+    precision, recall, f1 = calculate_metrics(all_labels, all_predictions)
+    return average_loss, accuracy, precision, recall, f1
 
-        server_model.set_weights(avg_weight)
-        print("server {}/{} evaluate".format(epoch + 1, EPOCHS))
-        server_evaluate_acc.append(server_model.evaluate(x_test, y_test, batch_size=BATCH_SIZE, verbose=1))
+# GlobalAggregation function for FedAvg
+def GlobalAggregationFedAvg():
+    global_model = CNNModel().to(device)
 
-    write_csv("FedAvg", server_evaluate_acc)
+    global_losses = []
+    global_accuracies = []
+    global_precisions = []
+    global_recalls = []
+    global_f1_scores = []
+
+    # Create data loaders for clients
+    client_dataloaders = []
+    for i in range(num_edge_servers):
+        indices = list(range(i, len(trainset), num_edge_servers))
+        subset = torch.utils.data.Subset(trainset, indices)
+        client_dataloaders.append(torch.utils.data.DataLoader(subset, batch_size=b, shuffle=True))
+
+    # Create data loader for the full training set
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=b, shuffle=True)
+
+    # Create test data loader
+    testloader = torch.utils.data.DataLoader(testset, batch_size=b, shuffle=False)
+
+    optimizer = optim.SGD(global_model.parameters(), lr=learning_rate)
+
+    for t in range(1, num_rounds + 1):
+        weighted_params = []
+
+        # FedAvg update for each client
+        for client_id in range(num_edge_servers):
+            local_model_params = FedAvgUpdate(client_id, global_model, client_dataloaders[client_id])
+            weighted_params.append(local_model_params)
+
+        # Weighted average aggregation of model parameters
+        weights = [1.0] * num_edge_servers
+        weighted_average_params = calculate_weighted_average(weighted_params, weights)
+        global_model.load_state_dict(weighted_average_params)
+
+        # Evaluate on training data
+        global_loss, global_accuracy, true_labels, predictions = calculate_gradient(global_model, trainloader)
+        precision, recall, f1 = calculate_metrics(true_labels, predictions)
+
+        # Log training metrics
+        global_losses.append(global_loss)
+        global_accuracies.append(global_accuracy)
+        global_precisions.append(precision)
+        global_recalls.append(recall)
+        global_f1_scores.append(f1)
+
+        save_data(global_accuracies, '../Results/FedAvg_Accuracy.pkl')
+        save_data(global_losses, '../Results/FedAvg_Losses.pkl')
+        save_data(global_precisions, '../Results/FedAvg_Precisions.pkl')
+        save_data(global_recalls, '../Results/FedAvg_Recalls.pkl')
+        save_data(global_f1_scores, '../Results/FedAvg_f1Scores.pkl')
+
+        logger.info(f"Round {t}: Training Loss: {global_loss:.4f}, Training Accuracy: {global_accuracy:.2f}%, "
+                    f"Precision: {precision:.4f}, Recall: {recall:.4f}, F1-Score: {f1:.4f}")
+
+        # Evaluate on test data
+        test_loss, test_accuracy, test_precision, test_recall, test_f1 = evaluate_global_model(global_model, testloader)
+
+        logger.info(f"Round {t}: Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}%, "
+                    f"Precision: {test_precision:.4f}, Recall: {test_recall:.4f}, F1-Score: {test_f1:.4f}")
+
+        # Adjust learning rate
+        adjust_learning_rate(optimizer)
+
+GlobalAggregationFedAvg()
