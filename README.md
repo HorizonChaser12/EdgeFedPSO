@@ -12,6 +12,8 @@ EdgeFedPSO leverages the power of federated learning to train machine learning m
 
 1. **PSO-based Model Update**: 
    - The Particle Swarm Optimization (PSO) algorithm has been integrated into the client-side model updates. Instead of traditional gradient-based updates, each client employs      multiple particles to explore better model parameters, combining cognitive and social terms for better convergence.
+   - New helper functions to initialize particles and calculate fitness.
+   - Velocity updates now include position clipping for better control, and diverse particles are initialized with noise.
 2. **Improved Metrics and Aggregation**:
    - Clients now send updated models with precision, recall, and F1-score for enhanced evaluation.
    - Weighted averaging of model parameters uses PSO to fine-tune global model updates.
