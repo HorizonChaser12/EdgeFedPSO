@@ -7,7 +7,7 @@ import torchvision.transforms as transforms
 import copy
 import logging
 from sklearn.metrics import precision_score, recall_score, f1_score
-from Plotting.data_storage import save_data
+from EdgeFedPSO.Plotting.data_storage import save_data
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
