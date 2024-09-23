@@ -6,14 +6,39 @@ EdgeFedPSO is an innovative project that implements Federated Learning using Par
 
 EdgeFedPSO leverages the power of federated learning to train machine learning models across edge devices, such as smartphones and IoT devices, without the need to centralize data. The project employs the Particle Swarm Optimization algorithm to optimize model parameters locally on edge devices while periodically exchanging information with a central server to aggregate global updates.
 
+## Updates
 
-## Key Features
+### **Updates in EdgeFedPSO:**
 
-- Federated learning for decentralized model training
-- Particle Swarm Optimization for local model optimization
-- Support for various machine learning tasks (classification, regression, etc.)
-- Privacy-preserving approach by keeping data on edge devices
-- Minimization of communication overhead by aggregating global updates periodically
+1. **PSO-based Model Update**: 
+   - The Particle Swarm Optimization (PSO) algorithm has been integrated into the client-side model updates. Instead of traditional gradient-based updates, each client employs      multiple particles to explore better model parameters, combining cognitive and social terms for better convergence.
+   - New helper functions to initialize particles and calculate fitness.
+   - Velocity updates now include position clipping for better control, and diverse particles are initialized with noise.
+2. **Improved Metrics and Aggregation**:
+   - Clients now send updated models with precision, recall, and F1-score for enhanced evaluation.
+   - Weighted averaging of model parameters uses PSO to fine-tune global model updates.
+3. **Global Stopping Condition**:
+   - Introduced accuracy threshold (95%) for early stopping during global aggregation.
+4. **Efficiency Improvements**:
+   - Refined learning rate adjustment and optimized PSO update process for faster convergence.
+
+### **Updates in EdgeFed:**
+1. **Device Configuration:**
+   - Added `torch.device` for utilizing GPU (`cuda`) if available, improving the performance for training on large datasets.
+2. **Dataset Splitting:**
+   - In the updated version, `client_dataloaders` are created using subsets of the MNIST dataset for each edge server. This ensures that each server gets a unique portion of the dataset, reflecting a more realistic federated learning setup.
+3. **Weighted Average of Model Parameters:**
+   - The aggregation function is more explicit in calculating weighted averages of model parameters across clients based on their data size, improving the effectiveness of global model updates.
+4. **Global Model Update:**
+   - The new implementation ensures that the global model is updated directly using the aggregated local models’ state_dicts, improving synchronization across clients.
+
+### **Misc Updates:**
+1. **Enhanced Logging and Metrics:**
+   - The updated code logs training and test set metrics (loss, accuracy, precision, recall, F1-score) for each communication round. This provides more visibility into model performance during training.
+2. **Storage of Results:**
+   - Enhanced result-saving capabilities, storing evaluation metrics (accuracy, loss, precision, recall, F1-score) after each round in `.pkl` files, making it easier to analyze training progression later.
+3. **Evaluation on Test Set:**
+   - The updated version evaluates both training and test data during each round, providing a more comprehensive performance analysis.
 
 ## Installation
 
@@ -25,7 +50,7 @@ To use the EdgeFedPSO project, follow these steps:
 4. Configure the parameters such as the number of edge servers, clients per server, local batch size, learning rate, etc., according to your requirements.
 5. Prepare the dataset for federated learning. Ensure that it is divided into subsets for each edge device.
 6. Run the project to start federated learning: `python edge_fed_pso.py`.
-7. Monitor the training progress and global model updates.
+7. Monitor the training progress and global model updates using the logger that prints the particular results.
 
 ## Usage
 
