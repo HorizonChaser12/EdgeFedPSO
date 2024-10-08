@@ -23,7 +23,7 @@ print(process_1)
 #
 # plt.subplot(1, 1, 1)
 # plt.plot(range(1, num_rounds + 1), process_1, label='EdgeFed', marker='o')
-# plt.plot(range(1, num_rounds + 1), process_2, label='EdgeFedPSO', marker='o')
+# plt.plot(range(1, num_rounds + 1), process_2, label='Research', marker='o')
 # plt.title('Global Accuracy Over Communication Rounds')
 # plt.xlabel('Communication Rounds')
 # plt.ylabel('Accuracy')

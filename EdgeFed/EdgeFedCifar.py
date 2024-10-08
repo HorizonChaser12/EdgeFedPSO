@@ -6,14 +6,14 @@ import torchvision.transforms as transforms
 import copy
 import logging
 from sklearn.metrics import precision_score, recall_score, f1_score
-from EdgeFedPSO.Plotting.data_storage import save_data
+from Research.Plotting.data_storage import save_data
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Define constants
-num_edge_servers = 5
+num_edge_servers = 10
 m = num_edge_servers  # Number of edge servers
 k = 10  # Number of clients per edge server
 b = 64  # Local batch size
@@ -238,11 +238,11 @@ def GlobalAggregation():
         global_recalls.append(recall)
         global_f1_scores.append(f1)
 
-        save_data(global_accuracies, '../Results/EdgeFed_CIFAR10_Accuracy.pkl')
-        save_data(global_losses, '../Results/EdgeFed_CIFAR10_Losses.pkl')
-        save_data(global_precisions, '../Results/EdgeFed_CIFAR10_Precisions.pkl')
-        save_data(global_recalls, '../Results/EdgeFed_CIFAR10_Recalls.pkl')
-        save_data(global_f1_scores, '../Results/EdgeFed_CIFAR10_f1Scores.pkl')
+        # save_data(global_accuracies, '../Results/EdgeFed_CIFAR10_Accuracy.pkl')
+        # save_data(global_losses, '../Results/EdgeFed_CIFAR10_Losses.pkl')
+        # save_data(global_precisions, '../Results/EdgeFed_CIFAR10_Precisions.pkl')
+        # save_data(global_recalls, '../Results/EdgeFed_CIFAR10_Recalls.pkl')
+        # save_data(global_f1_scores, '../Results/EdgeFed_CIFAR10_f1Scores.pkl')
 
         logger.info(f"Round {t}: Training Loss: {global_loss:.4f}, Training Accuracy: {global_accuracy:.2f}%, "
                     f"Precision: {precision:.4f}, Recall: {recall:.4f}, F1-Score: {f1:.4f}")
