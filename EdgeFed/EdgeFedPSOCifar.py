@@ -7,14 +7,15 @@ import torchvision.transforms as transforms
 import copy
 import logging
 from sklearn.metrics import precision_score, recall_score, f1_score
-from EdgeFedPSO.Plotting.data_storage import save_data
+from Research.Plotting.data_storage import save_data
+
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Define constants
-num_edge_servers = 5
+num_edge_servers = 10
 m = num_edge_servers  # Number of edge servers
 k = 10  # Number of clients per edge server
 b = 64  # Local batch size
