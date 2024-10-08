@@ -17,37 +17,57 @@ logger = logging.getLogger(__name__)
 num_edge_servers = 10
 m = num_edge_servers  # Number of edge servers
 k = 10  # Number of clients per edge server
-b = 32  # Local batch size
-E = 5   # Number of local epochs
-learning_rate = 0.001
+b = 64  # Local batch size
+E = 5  # Number of local epochs
+learning_rate = 0.01
 num_rounds = 10  # Number of communication rounds
 num_classes = 10
 
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Load and preprocess the MNIST dataset
-transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
-trainset = torchvision.datasets.MNIST(root='./data', train=True, transform=transform, download=True)
+# Load and preprocess the CIFAR-10 dataset
+transform_train = transforms.Compose([
+    transforms.RandomCrop(32, padding=4),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+])
 
-# Define the CNN model
-class CNNModel(nn.Module):
+transform_test = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+])
+
+trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+
+
+# Define the CNN model for CIFAR-10
+class CIFAR10Model(nn.Module):
     def __init__(self):
-        super(CNNModel, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3)
+        super(CIFAR10Model, self).__init__()
+        self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+        self.conv3 = nn.Conv2d(64, 64, 3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(32 * 13 * 13, 128)
-        self.fc2 = nn.Linear(128, num_classes)
+        self.fc1 = nn.Linear(64 * 4 * 4, 512)
+        self.fc2 = nn.Linear(512, num_classes)
+        self.dropout = nn.Dropout(0.2)
 
     def forward(self, x):
         x = self.pool(nn.functional.relu(self.conv1(x)))
-        x = x.view(-1, 32 * 13 * 13)
-        x = nn.functional.relu(self.fc1(x))
+        x = self.pool(nn.functional.relu(self.conv2(x)))
+        x = self.pool(nn.functional.relu(self.conv3(x)))
+        x = x.view(-1, 64 * 4 * 4)
+        x = self.dropout(nn.functional.relu(self.fc1(x)))
         x = self.fc2(x)
         return x
 
+
 # Instantiate the global model
-global_model = CNNModel().to(device)
+global_model = CIFAR10Model().to(device)
+
 
 # Function to calculate gradients and metrics
 def calculate_gradient(model, dataloader):
@@ -79,6 +99,7 @@ def calculate_gradient(model, dataloader):
 
     return average_loss, accuracy, all_labels, all_predictions
 
+
 # Function to calculate metrics
 def calculate_metrics(true_labels, predictions):
     precision = precision_score(true_labels, predictions, average='weighted')
@@ -86,10 +107,11 @@ def calculate_metrics(true_labels, predictions):
     f1 = f1_score(true_labels, predictions, average='weighted')
     return precision, recall, f1
 
+
 # FedAvg Update function
 def FedAvgUpdate(client_id, global_model, dataloader):
     local_model = copy.deepcopy(global_model)
-    optimizer = optim.SGD(local_model.parameters(), lr=learning_rate)
+    optimizer = optim.SGD(local_model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=5e-4)
     criterion = nn.CrossEntropyLoss()
 
     for epoch in range(1, E + 1):
@@ -118,10 +140,12 @@ def FedAvgUpdate(client_id, global_model, dataloader):
 
     return local_model.state_dict()
 
+
 # Function to adjust learning rate
 def adjust_learning_rate(optimizer, decay_rate=0.95):
     for param_group in optimizer.param_groups:
         param_group['lr'] *= decay_rate
+
 
 # Function to calculate weighted average of model parameters
 def calculate_weighted_average(weighted_params, weights):
@@ -131,9 +155,10 @@ def calculate_weighted_average(weighted_params, weights):
         avg_params[key] = sum(weight * param[key] for weight, param in zip(weights, weighted_params)) / total_weight
     return avg_params
 
+
 # Load test dataset
-testset = torchvision.datasets.MNIST(root='./data', train=False, transform=transform, download=True)
 testloader = torch.utils.data.DataLoader(testset, batch_size=b, shuffle=False)
+
 
 def evaluate_global_model(model, dataloader):
     model.eval()
@@ -163,9 +188,10 @@ def evaluate_global_model(model, dataloader):
     precision, recall, f1 = calculate_metrics(all_labels, all_predictions)
     return average_loss, accuracy, precision, recall, f1
 
+
 # GlobalAggregation function for FedAvg
 def GlobalAggregationFedAvg():
-    global_model = CNNModel().to(device)
+    global_model = CIFAR10Model().to(device)
 
     global_losses = []
     global_accuracies = []
@@ -183,10 +209,7 @@ def GlobalAggregationFedAvg():
     # Create data loader for the full training set
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=b, shuffle=True)
 
-    # Create test data loader
-    testloader = torch.utils.data.DataLoader(testset, batch_size=b, shuffle=False)
-
-    optimizer = optim.SGD(global_model.parameters(), lr=learning_rate)
+    optimizer = optim.SGD(global_model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=5e-4)
 
     for t in range(1, num_rounds + 1):
         weighted_params = []
@@ -212,11 +235,11 @@ def GlobalAggregationFedAvg():
         global_recalls.append(recall)
         global_f1_scores.append(f1)
 
-        save_data(global_accuracies, '../Results/FedAvg_Accuracy.pkl')
-        save_data(global_losses, '../Results/FedAvg_Losses.pkl')
-        save_data(global_precisions, '../Results/FedAvg_Precisions.pkl')
-        save_data(global_recalls, '../Results/FedAvg_Recalls.pkl')
-        save_data(global_f1_scores, '../Results/FedAvg_f1Scores.pkl')
+        save_data(global_accuracies, '../Results/FedAvg_CIFAR10_Accuracy.pkl')
+        save_data(global_losses, '../Results/FedAvg_CIFAR10_Losses.pkl')
+        save_data(global_precisions, '../Results/FedAvg_CIFAR10_Precisions.pkl')
+        save_data(global_recalls, '../Results/FedAvg_CIFAR10_Recalls.pkl')
+        save_data(global_f1_scores, '../Results/FedAvg_CIFAR10_f1Scores.pkl')
 
         logger.info(f"Round {t}: Training Loss: {global_loss:.4f}, Training Accuracy: {global_accuracy:.2f}%, "
                     f"Precision: {precision:.4f}, Recall: {recall:.4f}, F1-Score: {f1:.4f}")
@@ -229,5 +252,6 @@ def GlobalAggregationFedAvg():
 
         # Adjust learning rate
         adjust_learning_rate(optimizer)
+
 
 GlobalAggregationFedAvg()
