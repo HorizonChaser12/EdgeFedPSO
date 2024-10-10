@@ -9,24 +9,29 @@ import torch.nn.functional as F
 from sklearn.metrics import precision_score, recall_score, f1_score
 from Research.Plotting.data_storage import save_data
 import numpy as np
+import random
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
 logger = logging.getLogger(__name__)
 
 # Define constants
-num_edge_servers = 10
-num_clients = 100  # Improvement 5: Adjust to 100 mobile devices
-k = num_clients // num_edge_servers  # Clients per edge server
-b = 32  # Local batch size
-E = 5  # Number of local epochs
-initial_learning_rate = 0.001  # Reduced initial learning rate
-num_rounds = 50  # Number of communication rounds
-num_classes = 10
+NUM_EDGE_SERVERS = 10
+NUM_CLIENTS = 100
+K = NUM_CLIENTS // NUM_EDGE_SERVERS  # Clients per edge server
+BATCH_SIZE = 32
+LOCAL_EPOCHS = 10
+INITIAL_LEARNING_RATE = 0.001
+NUM_ROUNDS = 50
+NUM_CLASSES = 10
 
-# Improvement 2: Add bandwidth simulation
-bandwidth_client_edge = 8 * 1024 * 1024  # 8 MB/s (in bits/s)
-bandwidth_edge_cloud = 3 * 1024 * 1024  # 3 MB/s (in bits/s)
+# Bandwidth simulation
+LOCAL_BANDWIDTHS = [6 * 1024 * 1024, 8 * 1024 * 1024, 10 * 1024 * 1024]  # Local: 6 MB/s, 8 MB/s, 10 MB/s
+GLOBAL_BANDWIDTHS = [1 * 1024 * 1024, 3 * 1024 * 1024, 5 * 1024 * 1024]  # Global: 1 MB/s, 3 MB/s, 5 MB/s
 
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -60,7 +65,7 @@ class EdgeModel(nn.Module):
         self.conv2 = nn.Conv2d(32, 64, kernel_size=5)
         self.pool = nn.MaxPool2d(2, 2)
         self.fc1 = nn.Linear(64 * 4 * 4, 128)
-        self.fc2 = nn.Linear(128, 10)
+        self.fc2 = nn.Linear(128, NUM_CLASSES)
         self.dropout2 = nn.Dropout(0.5)
 
     def forward(self, x):
@@ -82,7 +87,6 @@ class Particle:
 
     def update_velocity(self, global_best_position, w=0.5, c1=1.5, c2=1.5):
         if global_best_position is None:
-            # Skip velocity update if there is no global best position yet
             return
 
         for name in self.position:
@@ -108,22 +112,18 @@ class Particle:
         return self
 
 
-# Function to create non-IID data distribution
 def create_non_iid_data(dataset, num_edge_servers, k, alpha=0.5):
     num_samples = len(dataset)
     total_clients = num_edge_servers * k
     client_data = [[] for _ in range(total_clients)]
 
-    # Sort the indices by label
-    indices_by_label = [[] for _ in range(num_classes)]
+    indices_by_label = [[] for _ in range(NUM_CLASSES)]
     for idx, target in enumerate(dataset.targets):
         label = target.item()
         indices_by_label[label].append(idx)
 
-    # Use Dirichlet distribution to allocate samples
     for indices in indices_by_label:
         proportions = np.random.dirichlet(np.repeat(alpha, total_clients))
-        # Ensure we don't assign more indices than available
         num_indices = len(indices)
         if num_indices > 0:
             split_points = (np.cumsum(proportions) * num_indices).astype(int)
@@ -134,8 +134,7 @@ def create_non_iid_data(dataset, num_edge_servers, k, alpha=0.5):
     # Ensure all clients have at least one sample
     for client_id, data in enumerate(client_data):
         if len(data) == 0:
-            # If a client has no data, give it a random sample
-            random_label = np.random.randint(num_classes)
+            random_label = np.random.randint(NUM_CLASSES)
             if indices_by_label[random_label]:
                 random_index = np.random.choice(indices_by_label[random_label])
                 client_data[client_id].append(random_index)
@@ -144,13 +143,12 @@ def create_non_iid_data(dataset, num_edge_servers, k, alpha=0.5):
     return [torch.utils.data.Subset(dataset, indices) for indices in client_data]
 
 
-# Usage remains the same
-client_datasets = create_non_iid_data(trainset, num_edge_servers, k)
+client_datasets = create_non_iid_data(trainset, NUM_EDGE_SERVERS, K)
 
 
-# Improvement 2: Add function to simulate data transfer time
-def simulate_transfer_time(data_size, bandwidth):
-    return data_size / bandwidth  # Time in seconds
+def simulate_transfer_time(data_size, bandwidth, variability=0.2):
+    base_time = data_size / bandwidth
+    return base_time * (1 + random.uniform(-variability, variability))
 
 
 def get_bandwidth_scenario(scenario):
@@ -162,25 +160,20 @@ def get_bandwidth_scenario(scenario):
         return 8 * 1024 * 1024, 3 * 1024 * 1024  # 8 MB/s local, 3 MB/s global
 
 
-# Usage
-bandwidth_client_edge, bandwidth_edge_cloud = get_bandwidth_scenario("default")
+def calculate_communication_cost(local_transfer_time, edge_to_cloud_transfer_time):
+    total_cost = local_transfer_time + edge_to_cloud_transfer_time
+    logger.info(
+        f"Local transfer time: {local_transfer_time:.2f}, Edge-to-cloud transfer time: {edge_to_cloud_transfer_time:.2f}"
+    )
+    return total_cost
 
 
-def calculate_communication_cost(local_comm_times, global_comm_times, local_data_size, global_data_size,
-                                 bandwidth_local, bandwidth_global):
-    T_local = local_comm_times * (local_data_size / bandwidth_local)
-    T_global = global_comm_times * (global_data_size / bandwidth_global)
-    return T_local + T_global
-
-
-# Improvement 4: Add learning rate decay
 def adjust_learning_rate(optimizer, round):
-    lr = initial_learning_rate * (0.99 ** round)
+    lr = INITIAL_LEARNING_RATE * (0.99 ** round)
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
 
-# Function to calculate metrics
 def calculate_metrics(client_model, edge_model, dataloader):
     client_model.eval()
     edge_model.eval()
@@ -215,8 +208,7 @@ def calculate_metrics(client_model, edge_model, dataloader):
     return avg_loss, accuracy, precision, recall, f1
 
 
-# EdgeUpdate function
-def EdgeUpdatePSO(client_id, particle, edge_model, dataloader, round, global_best_position):
+def EdgeUpdatePSO(client_id, particle, edge_model, dataloader, round, global_best_position, bandwidth_client_edge):
     device = next(edge_model.parameters()).device
     particle = particle.to(device)
 
@@ -229,14 +221,14 @@ def EdgeUpdatePSO(client_id, particle, edge_model, dataloader, round, global_bes
     client_model.train()
     edge_model.train()
     optimizer = optim.SGD(list(client_model.parameters()) + list(edge_model.parameters()),
-                          lr=initial_learning_rate, momentum=0.9, weight_decay=1e-4)
+                          lr=INITIAL_LEARNING_RATE, momentum=0.9, weight_decay=1e-4)
 
     adjust_learning_rate(optimizer, round)
 
     criterion = nn.CrossEntropyLoss()
     total_client_output_size = 0
 
-    for epoch in range(E):
+    for epoch in range(LOCAL_EPOCHS):
         running_loss = 0.0
         correct = 0
         total = 0
@@ -261,7 +253,9 @@ def EdgeUpdatePSO(client_id, particle, edge_model, dataloader, round, global_bes
 
         epoch_loss = running_loss / len(dataloader)
         epoch_acc = 100. * correct / total
-        logger.info(f"Client {client_id} - Epoch {epoch}: Loss: {epoch_loss:.4f}, Accuracy: {epoch_acc:.2f}%")
+        logger.info(
+            f"Round {round} - Client {client_id} - Epoch {epoch}: Loss: {epoch_loss:.4f}, Accuracy: {epoch_acc:.2f}%"
+        )
 
     fitness = epoch_acc  # Using accuracy as fitness
     particle.update_best(fitness)
@@ -269,7 +263,6 @@ def EdgeUpdatePSO(client_id, particle, edge_model, dataloader, round, global_bes
     return particle, edge_model.state_dict(), transfer_time, total_client_output_size, fitness
 
 
-# Function to calculate weighted average of model parameters
 def calculate_weighted_average(model_params, weights):
     avg_params = copy.deepcopy(model_params[0])
     for key in avg_params.keys():
@@ -277,97 +270,111 @@ def calculate_weighted_average(model_params, weights):
     return avg_params
 
 
-# GlobalAggregation function
 def GlobalAggregationPSO():
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    global_edge_model = EdgeModel().to(device)
-    particles = [Particle(ClientModel().to(device)) for _ in range(num_clients)]
-    global_best_position = None
-    global_best_fitness = float('-inf')
+    results = []  # Store results for different bandwidth scenarios
 
-    global_losses = []
-    global_accuracies = []
-    global_precisions = []
-    global_recalls = []
-    global_f1_scores = []
+    for local_bw in LOCAL_BANDWIDTHS:
+        for global_bw in GLOBAL_BANDWIDTHS:
+            global_edge_model = EdgeModel().to(device)
+            particles = [Particle(ClientModel().to(device)) for _ in range(NUM_CLIENTS)]
+            global_best_position = None
+            global_best_fitness = float('-inf')
 
-    client_dataloaders = [torch.utils.data.DataLoader(dataset, batch_size=b, shuffle=True) for dataset in
-                          client_datasets]
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=1000, shuffle=False)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=1000, shuffle=False)
+            global_losses = []
+            global_accuracies = []
+            global_precisions = []
+            global_recalls = []
+            global_f1_scores = []
 
-    for t in range(1, num_rounds + 1):
-        edge_models = []
-        fitnesses = []
-        total_transfer_time = 0
-        total_client_output_size = 0
+            client_dataloaders = [torch.utils.data.DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True) for dataset
+                                  in client_datasets]
+            trainloader = torch.utils.data.DataLoader(trainset, batch_size=1000, shuffle=False)
+            testloader = torch.utils.data.DataLoader(testset, batch_size=1000, shuffle=False)
 
-        for client_id, particle in enumerate(particles):
-            updated_particle, edge_model_params, transfer_time, client_output_size, fitness = EdgeUpdatePSO(
-                client_id, particle, copy.deepcopy(global_edge_model), client_dataloaders[client_id], t,
-                global_best_position)
+            for t in range(1, NUM_ROUNDS + 1):
+                round_transfer_time = 0
+                round_client_output_size = 0
+                edge_models = []
+                fitnesses = []
 
-            particles[client_id] = updated_particle
-            edge_models.append(edge_model_params)
-            fitnesses.append(fitness)
-            total_transfer_time += transfer_time
-            total_client_output_size += client_output_size
+                for client_id, particle in enumerate(particles):
+                    updated_particle, edge_model_params, transfer_time, client_output_size, fitness = EdgeUpdatePSO(
+                        client_id, particle, copy.deepcopy(global_edge_model), client_dataloaders[client_id], t,
+                        global_best_position, local_bw
+                    )
 
-            if fitness > global_best_fitness:
-                global_best_fitness = fitness
-                global_best_position = {name: param.clone().detach() for name, param in
-                                        updated_particle.best_position.items()}
+                    particles[client_id] = updated_particle
+                    edge_models.append(edge_model_params)
+                    fitnesses.append(fitness)
+                    round_transfer_time += transfer_time
+                    round_client_output_size += client_output_size
 
-        # Aggregate edge models
-        global_edge_dict = calculate_weighted_average(edge_models, fitnesses)
-        global_edge_model.load_state_dict(global_edge_dict)
+                    if fitness > global_best_fitness:
+                        global_best_fitness = fitness
+                        global_best_position = {name: param.clone().detach() for name, param in
+                                                updated_particle.best_position.items()}
 
-        # Simulate edge to cloud transfer time
-        edge_to_cloud_size = sum(p.nelement() * p.element_size() for p in global_edge_model.parameters())
-        edge_to_cloud_time = simulate_transfer_time(edge_to_cloud_size, bandwidth_edge_cloud)
-        total_transfer_time += edge_to_cloud_time
+                # Aggregate edge models
+                global_edge_dict = calculate_weighted_average(edge_models, fitnesses)
+                global_edge_model.load_state_dict(global_edge_dict)
 
-        # Calculate total communication cost
-        total_comm_cost = calculate_communication_cost(
-            local_comm_times=total_transfer_time,
-            global_comm_times=1,
-            local_data_size=total_client_output_size,
-            global_data_size=edge_to_cloud_size,
-            bandwidth_local=bandwidth_client_edge,
-            bandwidth_global=bandwidth_edge_cloud
-        )
+                # Simulate edge to cloud transfer time
+                edge_to_cloud_size = sum(p.nelement() * p.element_size() for p in global_edge_model.parameters())
+                edge_to_cloud_time = simulate_transfer_time(edge_to_cloud_size, global_bw)
+                round_transfer_time += edge_to_cloud_time
 
-        # Evaluate global model
-        global_client_model = ClientModel().to(device)
-        global_client_model.load_state_dict(global_best_position)
+                # Calculate round communication cost
+                round_comm_cost = calculate_communication_cost(
+                    local_transfer_time=round_transfer_time,
+                    edge_to_cloud_transfer_time=edge_to_cloud_time
+                )
 
-        train_loss, train_accuracy, train_precision, train_recall, train_f1 = calculate_metrics(
-            global_client_model, global_edge_model, trainloader)
+                logger.info(f"Round {t} - Communication cost: {round_comm_cost:.2f} seconds")
+                logger.info(f"Round {t} - Client output size: {round_client_output_size} bits")
+                logger.info(f"Round {t} - Edge-to-cloud size: {edge_to_cloud_size} bits")
 
-        global_losses.append(train_loss)
-        global_accuracies.append(train_accuracy)
-        global_precisions.append(train_precision)
-        global_recalls.append(train_recall)
-        global_f1_scores.append(train_f1)
+                # Evaluate global model
+                global_client_model = ClientModel().to(device)
+                global_client_model.load_state_dict(global_best_position)
 
-        save_data(global_accuracies, '../Results/EdgeFedPSO_Accuracy.pkl')
-        save_data(global_losses, '../Results/EdgeFedPSO_Losses.pkl')
-        save_data(global_precisions, '../Results/EdgeFedPSO_Precisions.pkl')
-        save_data(global_recalls, '../Results/EdgeFedPSO_Recalls.pkl')
-        save_data(global_f1_scores, '../Results/EdgeFedPSO_f1Scores.pkl')
+                train_loss, train_accuracy, train_precision, train_recall, train_f1 = calculate_metrics(
+                    global_client_model, global_edge_model, trainloader)
 
-        logger.info(f"Round {t}: Training Loss: {train_loss:.4f}, Training Accuracy: {train_accuracy:.2f}%, "
-                    f"Precision: {train_precision:.4f}, Recall: {train_recall:.4f}, F1-Score: {train_f1:.4f}")
+                global_losses.append(train_loss)
+                global_accuracies.append(train_accuracy)
+                global_precisions.append(train_precision)
+                global_recalls.append(train_recall)
+                global_f1_scores.append(train_f1)
 
-        logger.info(f"Total communication cost: {total_comm_cost:.2f} seconds")
-        logger.info(f"Total transfer time: {total_transfer_time:.2f} seconds")
+                save_data(global_accuracies, '../Results/EdgeFedPSO_Accuracyb32e10.pkl')
+                save_data(global_losses, '../Results/EdgeFedPSO_Lossesb32e10.pkl')
+                save_data(global_precisions, '../Results/EdgeFedPSO_Precisionsb32e10.pkl')
+                save_data(global_recalls, '../Results/EdgeFedPSO_Recallsb32e10.pkl')
+                save_data(global_f1_scores, '../Results/EdgeFedPSO_f1Scoresb32e10.pkl')
 
-        test_loss, test_accuracy, test_precision, test_recall, test_f1 = calculate_metrics(
-            global_client_model, global_edge_model, testloader)
+                logger.info(f"Round {t}: Training Loss: {train_loss:.4f}, Training Accuracy: {train_accuracy:.2f}%, "
+                            f"Precision: {train_precision:.4f}, Recall: {train_recall:.4f}, F1-Score: {train_f1:.4f}")
 
-        logger.info(f"Round {t}: Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}%, "
-                    f"Precision: {test_precision:.4f}, Recall: {test_recall:.4f}, F1-Score: {test_f1:.4f}")
+                test_loss, test_accuracy, test_precision, test_recall, test_f1 = calculate_metrics(
+                    global_client_model, global_edge_model, testloader)
+
+                logger.info(f"Round {t}: Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}%, "
+                            f"Precision: {test_precision:.4f}, Recall: {test_recall:.4f}, F1-Score: {test_f1:.4f}")
+
+            # Store the results for this bandwidth combination
+            results.append({
+                'Local Bandwidth (MB/s)': local_bw / (1024 * 1024),
+                'Global Bandwidth (MB/s)': global_bw / (1024 * 1024),
+                'Average Round Communication Cost (s)': sum(round_comm_cost) / NUM_ROUNDS,
+                'Total Client Output Size (bits)': sum(round_client_output_sizes),
+                'Average Edge-to-Cloud Size (bits)': sum(round_edge_to_cloud_sizes) / NUM_ROUNDS
+            })
+
+    # Save all the results to a file
+    save_data(results, '../Results/EdgeFedPSO_communication_costsb32e10.pkl')
+    logger.info("Bandwidth simulation completed and results saved.")
 
 
 # Run the GlobalAggregation procedure
-GlobalAggregationPSO()
+if __name__ == "__main__":
+    GlobalAggregationPSO()
