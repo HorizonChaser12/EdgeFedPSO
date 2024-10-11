@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from sklearn.metrics import precision_score, recall_score, f1_score
 from Research.Plotting.data_storage import save_data
 import numpy as np
+import random
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -113,8 +114,12 @@ client_datasets = create_non_iid_data(trainset, num_edge_servers, k)
 
 
 # Improvement 2: Add function to simulate data transfer time
-def simulate_transfer_time(data_size, bandwidth):
-    return data_size / bandwidth  # Time in seconds
+def simulate_transfer_time(data_size, bandwidth, variability=0.2):
+    if bandwidth <= 0:
+        raise ValueError("Bandwidth must be positive")
+    base_time = data_size / bandwidth
+    return base_time * (1 + random.uniform(-variability, variability))
+
 
 
 def get_bandwidth_scenario(scenario):
@@ -130,11 +135,10 @@ def get_bandwidth_scenario(scenario):
 bandwidth_client_edge, bandwidth_edge_cloud = get_bandwidth_scenario("default")
 
 
-def calculate_communication_cost(local_comm_times, global_comm_times, local_data_size, global_data_size,
-                                 bandwidth_local, bandwidth_global):
-    T_local = local_comm_times * (local_data_size / bandwidth_local)
-    T_global = global_comm_times * (global_data_size / bandwidth_global)
-    return T_local + T_global
+def calculate_communication_cost(local_transfer_time, edge_to_cloud_transfer_time):
+    total_cost = local_transfer_time + edge_to_cloud_transfer_time
+    logger.info(f"Local transfer time: {local_transfer_time:.2f}, Edge-to-cloud transfer time: {edge_to_cloud_transfer_time:.2f}")
+    return total_cost
 
 
 # Improvement 4: Add learning rate decay
@@ -218,7 +222,7 @@ def EdgeUpdate(client_id, client_model, edge_model, dataloader, round):
 
         epoch_loss = running_loss / len(dataloader)
         epoch_acc = 100. * correct / total
-        logger.info(f"Client {client_id} - Epoch {epoch}: Loss: {epoch_loss:.4f}, Accuracy: {epoch_acc:.2f}%")
+        logger.info(f"Round {round} - Client {client_id} - Epoch {epoch}: Loss: {epoch_loss:.4f}, Accuracy: {epoch_acc:.2f}%")
 
     return client_model.state_dict(), edge_model.state_dict(), transfer_time, total_client_output_size
 
@@ -231,27 +235,28 @@ def calculate_weighted_average(model_params, weights):
     return avg_params
 
 
-# GlobalAggregation function
 def GlobalAggregation():
     global_client_model = ClientModel().to(device)
     global_edge_model = EdgeModel().to(device)
 
+    communication_costs = []
     global_losses = []
     global_accuracies = []
     global_precisions = []
     global_recalls = []
     global_f1_scores = []
 
-    client_dataloaders = [torch.utils.data.DataLoader(dataset, batch_size=b, shuffle=True) for dataset in
-                          client_datasets]
+    client_dataloaders = [torch.utils.data.DataLoader(dataset, batch_size=b, shuffle=True) for dataset in client_datasets]
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=1000, shuffle=False)
     testloader = torch.utils.data.DataLoader(testset, batch_size=1000, shuffle=False)
+
+    total_comm_cost = 0
 
     for t in range(1, num_rounds + 1):
         client_models = []
         edge_models = []
         weights = []
-        total_transfer_time = 0
+        total_local_transfer_time = 0
         total_client_output_size = 0
 
         for client_id in range(num_clients):
@@ -264,24 +269,24 @@ def GlobalAggregation():
             client_models.append(client_model_params)
             edge_models.append(edge_model_params)
             weights.append(len(client_dataloaders[client_id].dataset))
-            total_transfer_time += transfer_time
+            total_local_transfer_time += transfer_time
             total_client_output_size += client_output_size
 
         # Simulate edge to cloud transfer time
-        edge_to_cloud_size = sum(p.nelement() * p.element_size() for p in global_client_model.parameters()) + sum(
-            p.nelement() * p.element_size() for p in global_edge_model.parameters())
+        edge_to_cloud_size = sum(p.nelement() * p.element_size() for p in global_client_model.parameters()) + \
+                             sum(p.nelement() * p.element_size() for p in global_edge_model.parameters())
         edge_to_cloud_time = simulate_transfer_time(edge_to_cloud_size, bandwidth_edge_cloud)
-        total_transfer_time += edge_to_cloud_time
 
-        # Calculate total communication cost
-        total_comm_cost = calculate_communication_cost(
-            local_comm_times=total_transfer_time,
-            global_comm_times=1,  # One global communication per round
-            local_data_size=total_client_output_size,
-            global_data_size=edge_to_cloud_size,
-            bandwidth_local=bandwidth_client_edge,
-            bandwidth_global=bandwidth_edge_cloud
+        # Calculate round communication cost
+        round_comm_cost = calculate_communication_cost(
+            local_transfer_time=total_local_transfer_time,
+            edge_to_cloud_transfer_time=edge_to_cloud_time
         )
+        total_comm_cost += round_comm_cost
+
+        logger.info(f"Round {t} - Communication cost: {round_comm_cost:.2f} seconds")
+        logger.info(f"Round {t} - Client output size: {total_client_output_size} bits")
+        logger.info(f"Round {t} - Edge-to-cloud size: {edge_to_cloud_size} bits")
 
         global_client_dict = calculate_weighted_average(client_models, weights)
         global_edge_dict = calculate_weighted_average(edge_models, weights)
@@ -289,10 +294,10 @@ def GlobalAggregation():
         global_client_model.load_state_dict(global_client_dict)
         global_edge_model.load_state_dict(global_edge_dict)
 
-        train_loss, train_accuracy, train_precision, train_recall, train_f1 = calculate_metrics(global_client_model,
-                                                                                                global_edge_model,
-                                                                                                trainloader)
+        train_loss, train_accuracy, train_precision, train_recall, train_f1 = calculate_metrics(
+            global_client_model, global_edge_model, trainloader)
 
+        communication_costs.append(round_comm_cost)
         global_losses.append(train_loss)
         global_accuracies.append(train_accuracy)
         global_precisions.append(train_precision)
@@ -304,28 +309,27 @@ def GlobalAggregation():
         save_data(global_precisions, '../Results/EdgeFed_Precisions.pkl')
         save_data(global_recalls, '../Results/EdgeFed_Recalls.pkl')
         save_data(global_f1_scores, '../Results/EdgeFed_f1Scores.pkl')
-
-        total_comm_cost = calculate_communication_cost(
-            local_comm_times=total_transfer_time,
-            global_comm_times=t,
-            local_data_size=client_output_size,
-            global_data_size=edge_to_cloud_size,
-            bandwidth_local=bandwidth_client_edge,
-            bandwidth_global=bandwidth_edge_cloud
-        )
+        save_data(communication_costs, '../Results/EdgeFed_communicationCost.pkl')
 
         logger.info(f"Round {t}: Training Loss: {train_loss:.4f}, Training Accuracy: {train_accuracy:.2f}%, "
                     f"Precision: {train_precision:.4f}, Recall: {train_recall:.4f}, F1-Score: {train_f1:.4f}")
 
-        logger.info(f"Total communication cost: {total_comm_cost:.2f} seconds")
-        logger.info(f"Total transfer time: {total_transfer_time:.2f} seconds")
-
-        test_loss, test_accuracy, test_precision, test_recall, test_f1 = calculate_metrics(global_client_model,
-                                                                                           global_edge_model,
-                                                                                           testloader)
+        test_loss, test_accuracy, test_precision, test_recall, test_f1 = calculate_metrics(
+            global_client_model, global_edge_model, testloader)
 
         logger.info(f"Round {t}: Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}%, "
                     f"Precision: {test_precision:.4f}, Recall: {test_recall:.4f}, F1-Score: {test_f1:.4f}")
+
+    # After the training loop
+    average_comm_cost = total_comm_cost / num_rounds
+    logger.info(f"Average communication cost per round: {average_comm_cost:.2f} seconds")
+
+    comm_cost_data = {
+        'total_comm_cost': total_comm_cost,
+        'average_comm_cost': average_comm_cost,
+        'num_rounds': num_rounds
+    }
+    save_data(comm_cost_data, '../Results/EdgeFed_communicationCost.pkl')
 
 
 # Run the GlobalAggregation procedure
