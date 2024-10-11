@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 NUM_EDGE_SERVERS = 10
 NUM_CLIENTS = 100
 K = NUM_CLIENTS // NUM_EDGE_SERVERS  # Clients per edge server
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 LOCAL_EPOCHS = 10
 INITIAL_LEARNING_RATE = 0.001
-NUM_ROUNDS = 50
+NUM_ROUNDS = 5
 NUM_CLASSES = 10
 
 # Bandwidth simulation
@@ -113,7 +113,6 @@ class Particle:
 
 
 def create_non_iid_data(dataset, num_edge_servers, k, alpha=0.5):
-    num_samples = len(dataset)
     total_clients = num_edge_servers * k
     client_data = [[] for _ in range(total_clients)]
 
@@ -147,6 +146,8 @@ client_datasets = create_non_iid_data(trainset, NUM_EDGE_SERVERS, K)
 
 
 def simulate_transfer_time(data_size, bandwidth, variability=0.2):
+    if bandwidth <= 0:
+        raise ValueError("Bandwidth must be positive")
     base_time = data_size / bandwidth
     return base_time * (1 + random.uniform(-variability, variability))
 
@@ -196,16 +197,37 @@ def calculate_metrics(client_model, edge_model, dataloader):
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
 
-            all_preds.extend(predicted.cpu().numpy())
-            all_targets.extend(targets.cpu().numpy())
+            all_preds.append(predicted)
+            all_targets.append(targets)
+
+    all_preds = torch.cat(all_preds)
+    all_targets = torch.cat(all_targets)
 
     accuracy = 100. * correct / total
     avg_loss = total_loss / len(dataloader)
-    precision = precision_score(all_targets, all_preds, average='weighted', zero_division=0)
-    recall = recall_score(all_targets, all_preds, average='weighted', zero_division=0)
-    f1 = f1_score(all_targets, all_preds, average='weighted', zero_division=0)
 
-    return avg_loss, accuracy, precision, recall, f1
+    # Calculate precision, recall, and F1 score using PyTorch operations
+    num_classes = NUM_CLASSES  # Assuming NUM_CLASSES is defined globally
+    true_positives = torch.zeros(num_classes, device=device)
+    predicted_positives = torch.zeros(num_classes, device=device)
+    actual_positives = torch.zeros(num_classes, device=device)
+
+    for c in range(num_classes):
+        true_positives[c] = ((all_preds == c) & (all_targets == c)).sum().float()
+        predicted_positives[c] = (all_preds == c).sum().float()
+        actual_positives[c] = (all_targets == c).sum().float()
+
+    precision = true_positives / (predicted_positives + 1e-7)  # Add small epsilon to avoid division by zero
+    recall = true_positives / (actual_positives + 1e-7)
+    f1 = 2 * (precision * recall) / (precision + recall + 1e-7)
+
+    # Calculate weighted averages
+    weights = actual_positives / actual_positives.sum()
+    precision_weighted = (precision * weights).sum().item()
+    recall_weighted = (recall * weights).sum().item()
+    f1_weighted = (f1 * weights).sum().item()
+
+    return avg_loss, accuracy, precision_weighted, recall_weighted, f1_weighted
 
 
 def EdgeUpdatePSO(client_id, particle, edge_model, dataloader, round, global_best_position, bandwidth_client_edge):
@@ -291,6 +313,10 @@ def GlobalAggregationPSO():
             trainloader = torch.utils.data.DataLoader(trainset, batch_size=1000, shuffle=False)
             testloader = torch.utils.data.DataLoader(testset, batch_size=1000, shuffle=False)
 
+            total_round_comm_costs = 0
+            total_client_output_size = 0
+            total_edge_to_cloud_size = 0
+
             for t in range(1, NUM_ROUNDS + 1):
                 round_transfer_time = 0
                 round_client_output_size = 0
@@ -329,6 +355,10 @@ def GlobalAggregationPSO():
                     edge_to_cloud_transfer_time=edge_to_cloud_time
                 )
 
+                total_round_comm_costs += round_comm_cost
+                total_client_output_size += round_client_output_size
+                total_edge_to_cloud_size += edge_to_cloud_size
+
                 logger.info(f"Round {t} - Communication cost: {round_comm_cost:.2f} seconds")
                 logger.info(f"Round {t} - Client output size: {round_client_output_size} bits")
                 logger.info(f"Round {t} - Edge-to-cloud size: {edge_to_cloud_size} bits")
@@ -346,11 +376,11 @@ def GlobalAggregationPSO():
                 global_recalls.append(train_recall)
                 global_f1_scores.append(train_f1)
 
-                save_data(global_accuracies, '../Results/EdgeFedPSO_Accuracyb32e10.pkl')
-                save_data(global_losses, '../Results/EdgeFedPSO_Lossesb32e10.pkl')
-                save_data(global_precisions, '../Results/EdgeFedPSO_Precisionsb32e10.pkl')
-                save_data(global_recalls, '../Results/EdgeFedPSO_Recallsb32e10.pkl')
-                save_data(global_f1_scores, '../Results/EdgeFedPSO_f1Scoresb32e10.pkl')
+                save_data(global_accuracies, '../Results/EdgeFedPSO_Accuracyb16e10.pkl')
+                save_data(global_losses, '../Results/EdgeFedPSO_Lossesb16e10.pkl')
+                save_data(global_precisions, '../Results/EdgeFedPSO_Precisionsb16e10.pkl')
+                save_data(global_recalls, '../Results/EdgeFedPSO_Recallsb16e10.pkl')
+                save_data(global_f1_scores, '../Results/EdgeFedPSO_f1Scoresb16e10.pkl')
 
                 logger.info(f"Round {t}: Training Loss: {train_loss:.4f}, Training Accuracy: {train_accuracy:.2f}%, "
                             f"Precision: {train_precision:.4f}, Recall: {train_recall:.4f}, F1-Score: {train_f1:.4f}")
@@ -365,13 +395,13 @@ def GlobalAggregationPSO():
             results.append({
                 'Local Bandwidth (MB/s)': local_bw / (1024 * 1024),
                 'Global Bandwidth (MB/s)': global_bw / (1024 * 1024),
-                'Average Round Communication Cost (s)': sum(round_comm_cost) / NUM_ROUNDS,
-                'Total Client Output Size (bits)': sum(round_client_output_sizes),
-                'Average Edge-to-Cloud Size (bits)': sum(round_edge_to_cloud_sizes) / NUM_ROUNDS
+                'Average Round Communication Cost (s)': total_round_comm_costs / NUM_ROUNDS,
+                'Total Client Output Size (bits)': total_client_output_size,
+                'Average Edge-to-Cloud Size (bits)': total_edge_to_cloud_size / NUM_ROUNDS
             })
 
     # Save all the results to a file
-    save_data(results, '../Results/EdgeFedPSO_communication_costsb32e10.pkl')
+    save_data(results, '../Results/EdgeFedPSO_communication_costsb16e10.pkl')
     logger.info("Bandwidth simulation completed and results saved.")
 
 
