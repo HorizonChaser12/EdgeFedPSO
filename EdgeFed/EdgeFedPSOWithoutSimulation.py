@@ -23,12 +23,11 @@ logger = logging.getLogger(__name__)
 NUM_EDGE_SERVERS = 10
 NUM_CLIENTS = 100
 K = NUM_CLIENTS // NUM_EDGE_SERVERS  # Clients per edge server
-BATCH_SIZE = 16
-LOCAL_EPOCHS = 10
+BATCH_SIZE = 32
+LOCAL_EPOCHS = 5
 INITIAL_LEARNING_RATE = 0.001
 NUM_ROUNDS = 50
 NUM_CLASSES = 10
-
 
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -140,6 +139,15 @@ def create_non_iid_data(dataset, num_edge_servers, k, alpha=0.5):
 
 
 client_datasets = create_non_iid_data(trainset, NUM_EDGE_SERVERS, K)
+
+
+def get_bandwidth_scenario(scenario):
+    if scenario == "best":
+        return 10 * 1024 * 1024, 5 * 1024 * 1024  # 10 MB/s local, 5 MB/s global
+    elif scenario == "worst":
+        return 6 * 1024 * 1024, 1 * 1024 * 1024  # 6 MB/s local, 1 MB/s global
+    else:  # default
+        return 8 * 1024 * 1024, 3 * 1024 * 1024  # 8 MB/s local, 3 MB/s global
 
 
 def simulate_transfer_time(data_size, bandwidth, variability=0.2):
@@ -286,6 +294,7 @@ def GlobalAggregationPSO():
     global_best_position = None
     global_best_fitness = float('-inf')
 
+    communication_cost = []
     global_losses = []
     global_accuracies = []
     global_precisions = []
@@ -307,7 +316,7 @@ def GlobalAggregationPSO():
         edge_models = []
         fitnesses = []
 
-        # Use one bandwidth combination here (e.g., best scenario)
+        # Use one bandwidth combination here (e.g.best scenario)
         local_bw, global_bw = get_bandwidth_scenario("best")
 
         for client_id, particle in enumerate(particles):
@@ -357,17 +366,19 @@ def GlobalAggregationPSO():
         train_loss, train_accuracy, train_precision, train_recall, train_f1 = calculate_metrics(
             global_client_model, global_edge_model, trainloader)
 
+        communication_cost.append(round_comm_cost)
         global_losses.append(train_loss)
         global_accuracies.append(train_accuracy)
         global_precisions.append(train_precision)
         global_recalls.append(train_recall)
         global_f1_scores.append(train_f1)
 
-        save_data(global_accuracies, '../Results/EdgeFedPSO_Accuracyb16e10.pkl')
-        save_data(global_losses, '../Results/EdgeFedPSO_Lossesb16e10.pkl')
-        save_data(global_precisions, '../Results/EdgeFedPSO_Precisionsn16e10.pkl')
-        save_data(global_recalls, '../Results/EdgeFedPSO_Recallsb16e10.pkl')
-        save_data(global_f1_scores, '../Results/EdgeFedPSO_f1Scoresb16e10.pkl')
+        save_data(global_accuracies, '../Results/EdgeFedPSO_Accuracyb32e5.pkl')
+        save_data(global_losses, '../Results/EdgeFedPSO_Lossesb32e5.pkl')
+        save_data(global_precisions, '../Results/EdgeFedPSO_Precisionsb32e5.pkl')
+        save_data(global_recalls, '../Results/EdgeFedPSO_Recallsb32e5.pkl')
+        save_data(global_f1_scores, '../Results/EdgeFedPSO_f1Scoresb32e5.pkl')
+        save_data(communication_cost, '../Results/EdgeFedPSO_communication_costsb32e5.pkl')
 
         logger.info(f"Round {t}: Training Loss: {train_loss:.4f}, Training Accuracy: {train_accuracy:.2f}%, "
                     f"Precision: {train_precision:.4f}, Recall: {train_recall:.4f}, F1-Score: {train_f1:.4f}")

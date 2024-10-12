@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 num_edge_servers = 10
 num_clients = 100  # Improvement 5: Adjust to 100 mobile devices
 k = num_clients // num_edge_servers  # Clients per edge server
-b = 32  # Local batch size
+b = 16  # Local batch size
 E = 5  # Number of local epochs
 initial_learning_rate = 0.001  # Reduced initial learning rate
 num_rounds = 50  # Number of communication rounds
@@ -304,12 +304,12 @@ def GlobalAggregation():
         global_recalls.append(train_recall)
         global_f1_scores.append(train_f1)
 
-        save_data(global_accuracies, '../Results/EdgeFed_Accuracy.pkl')
-        save_data(global_losses, '../Results/EdgeFed_Losses.pkl')
-        save_data(global_precisions, '../Results/EdgeFed_Precisions.pkl')
-        save_data(global_recalls, '../Results/EdgeFed_Recalls.pkl')
-        save_data(global_f1_scores, '../Results/EdgeFed_f1Scores.pkl')
-        save_data(communication_costs, '../Results/EdgeFed_communicationCost.pkl')
+        save_data(global_accuracies, '../Results/EdgeFed_Accuracyb16e5.pkl')
+        save_data(global_losses, '../Results/EdgeFed_Lossesb16e5.pkl')
+        save_data(global_precisions, '../Results/EdgeFed_Precisionsb16e5.pkl')
+        save_data(global_recalls, '../Results/EdgeFed_Recallsb16e5.pkl')
+        save_data(global_f1_scores, '../Results/EdgeFed_f1Scoresb16e5.pkl')
+        save_data(communication_costs, '../Results/EdgeFed_communicationCostb16e5.pkl')
 
         logger.info(f"Round {t}: Training Loss: {train_loss:.4f}, Training Accuracy: {train_accuracy:.2f}%, "
                     f"Precision: {train_precision:.4f}, Recall: {train_recall:.4f}, F1-Score: {train_f1:.4f}")
@@ -329,7 +329,7 @@ def GlobalAggregation():
         'average_comm_cost': average_comm_cost,
         'num_rounds': num_rounds
     }
-    save_data(comm_cost_data, '../Results/EdgeFed_communicationCost.pkl')
+    save_data(comm_cost_data, '../Results/EdgeFed_communicationCostb16e5.pkl')
 
 
 # Run the GlobalAggregation procedure
