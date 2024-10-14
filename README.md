@@ -8,8 +8,46 @@ EdgeFedPSO leverages the power of federated learning to train machine learning m
 
 ## Updates
 
-### **Updates in EdgeFedPSO:**
+<details>
+<summary>
+Updates 2
+</summary>
 
+### **Updates in EdgeFedPSO:** ###
+1. **Model Architecture Enhancements**:
+   - Introduced a split CNN architecture for improved training efficiency. The `ClientModel` and `EdgeModel` are now defined to separately handle local and edge computations.
+   - Added dropout layers to reduce overfitting in both models.
+2. **Particle Swarm Optimization (PSO) Implementation**:
+   - Enhanced the `Particle` class with methods for updating velocity, position, and best fitness using PSO.
+   - Implemented a `GlobalAggregationPSO` method that aggregates model parameters from multiple clients based on fitness scores, improving overall model performance.
+3. **Non-IID Data Simulation**:
+   - Added a function `create_non_iid_data` to generate non-IID datasets for clients, enhancing realism in federated learning scenarios.
+4. **Bandwidth Simulation**:
+   - Integrated bandwidth simulation for local and global transfers with configurable scenarios (best, worst, and default). The `simulate_transfer_time` function now models the time taken for data transfer based on client and edge server bandwidth.
+5. **Particle Diversity**: 
+   - The PSO algorithm now initializes particles with small random noise for increased diversity.
+6. **Communication Cost Calculation**:
+   - Implemented a function to calculate communication costs for each round, helping to analyze the efficiency of the federated learning process.
+
+### **Updates in EdgeFed:**
+1. **Non-IID Data Distribution**: 
+   - Implemented a Dirichlet distribution-based method for creating non-IID data across clients, providing a more realistic scenario.
+2. **Network Simulation**: 
+   - Added bandwidth simulation to model data transfer between clients, edge servers, and the cloud.
+3. **Learning Rate Decay**: 
+   - Introduced a learning rate decay mechanism to improve convergence.
+4. **Model Architecture**: 
+   - Updated the CNN model architecture, splitting it into client and edge components for more efficient federated learning.
+</details>
+
+
+<details>
+<summary>
+Updates 1
+</summary>
+
+
+### **Updates in EdgeFedPSO:**
 1. **PSO-based Model Update**: 
    - The Particle Swarm Optimization (PSO) algorithm has been integrated into the client-side model updates. Instead of traditional gradient-based updates, each client employs      multiple particles to explore better model parameters, combining cognitive and social terms for better convergence.
    - New helper functions to initialize particles and calculate fitness.
@@ -23,13 +61,11 @@ EdgeFedPSO leverages the power of federated learning to train machine learning m
    - Refined learning rate adjustment and optimized PSO update process for faster convergence.
 
 ### **Updates in EdgeFed:**
-1. **Device Configuration:**
-   - Added `torch.device` for utilizing GPU (`cuda`) if available, improving the performance for training on large datasets.
-2. **Dataset Splitting:**
+1. **Dataset Splitting:**
    - In the updated version, `client_dataloaders` are created using subsets of the MNIST dataset for each edge server. This ensures that each server gets a unique portion of the dataset, reflecting a more realistic federated learning setup.
-3. **Weighted Average of Model Parameters:**
+2. **Weighted Average of Model Parameters:**
    - The aggregation function is more explicit in calculating weighted averages of model parameters across clients based on their data size, improving the effectiveness of global model updates.
-4. **Global Model Update:**
+3. **Global Model Update:**
    - The new implementation ensures that the global model is updated directly using the aggregated local models’ state_dicts, improving synchronization across clients.
 
 ### **Misc Updates:**
@@ -39,6 +75,10 @@ EdgeFedPSO leverages the power of federated learning to train machine learning m
    - Enhanced result-saving capabilities, storing evaluation metrics (accuracy, loss, precision, recall, F1-score) after each round in `.pkl` files, making it easier to analyze training progression later.
 3. **Evaluation on Test Set:**
    - The updated version evaluates both training and test data during each round, providing a more comprehensive performance analysis.
+4. **Device Configuration:**
+   - Added `torch.device` for utilizing GPU (`cuda`) if available, improving the performance for training on large datasets.
+
+</details>
 
 ## Installation
 
@@ -52,12 +92,6 @@ To use the EdgeFedPSO project, follow these steps:
 6. Run the project to start federated learning: `python edge_fed_pso.py`.
 7. Monitor the training progress and global model updates using the logger that prints the particular results.
 
-## Usage
-
-1. Define your machine learning model architecture and objective function in the `Model` class.
-2. Implement the `calculate_gradient` function to compute local gradients on each edge device.
-3. Execute the `EdgeUpdate` function to perform local model updates on each edge device.
-4. Run the `GlobalAggregation` function to aggregate global model updates periodically.
 
 ## Troubleshooting
 
@@ -65,13 +99,22 @@ To use the EdgeFedPSO project, follow these steps:
 - Ensure that the edge devices have sufficient computational resources and data samples for training.
 - Debug any issues related to communication between edge devices and the central server.
 
+## Dependencies
+The main dependencies for this project are:
+   - PyTorch (1.8.0+)
+   - NumPy (1.19.0+)
+   - scikit-learn (0.24.0+)
+   - torchvision (0.9.0+)
+
+For a complete list of dependencies, please refer to the `requirements.txt` file.
+
 ## Future Development
 
 This project is actively under development, and future plans include:
 
-- Implementing advanced federated learning algorithms and optimization techniques
-- Extending support for different types of machine learning tasks and models
-- Enhancing security measures to protect data privacy during federated learning
+- Implement more sophisticated non-IID data distribution methods.
+- xplore adaptive PSO parameters based on system performance.
+- Incorporate privacy-preserving techniques such as differential privacy.
 - Integrating with edge computing frameworks for improved performance and scalability
 
 Contributions and suggestions are welcome! Feel free to open issues and submit pull requests to help improve the project.
