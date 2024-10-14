@@ -113,7 +113,7 @@ For a complete list of dependencies, please refer to the `requirements.txt` file
 This project is actively under development, and future plans include:
 
 - Implement more sophisticated non-IID data distribution methods.
-- xplore adaptive PSO parameters based on system performance.
+- Explore adaptive PSO parameters based on system performance.
 - Incorporate privacy-preserving techniques such as differential privacy.
 - Integrating with edge computing frameworks for improved performance and scalability
 
