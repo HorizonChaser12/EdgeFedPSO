@@ -2,7 +2,7 @@
 
 EdgeFedPSO is an innovative project that implements Federated Learning using Particle Swarm Optimization (PSO) on edge devices. It aims to train machine learning models collaboratively across edge devices while preserving data privacy and minimizing communication overhead.It provides the code for the Research Paper **"An Optimized Machine Learning Technique on Edge Environment : EdgeFedPSO"** 
 
-### > :warning: **This research has been halted.**: If you want to use this research,you can give us a reference.Hoping you guys get this posted in some Research Papers. ###
+### > :warning: **This research has been halted. **: If you want to use this research,you can give us a reference.Hoping you guys get this posted in some Research Papers. ###
 
 ## Description
 
